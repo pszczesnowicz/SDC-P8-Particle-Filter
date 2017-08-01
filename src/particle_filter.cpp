@@ -69,12 +69,29 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
     
     double x_updated, y_updated, theta_updated;
     
+    x_updated = 0;
+    y_updated = 0;
+    theta_updated = 0;
+    
     // Updating the particle position and heading
-    x_updated = (particles[i].x + (velocity / yaw_rate)
-                 * (sin(particles[i].theta + yaw_rate * delta_t) - sin(particles[i].theta)));
-    y_updated = (particles[i].y + (velocity / yaw_rate)
-                 * (cos(particles[i].theta) - cos(particles[i].theta + yaw_rate * delta_t)));
-    theta_updated = particles[i].theta + yaw_rate * delta_t;
+    
+    if (fabs(yaw_rate) < 0.000001) {
+      
+      x_updated = particles[i].x + velocity * delta_t * cos(particles[i].theta);
+      y_updated = particles[i].y + velocity * delta_t * sin(particles[i].theta);
+      theta_updated = particles[i].theta;
+      
+    }
+    
+    else if (fabs(yaw_rate) > 0) {
+      
+      x_updated = (particles[i].x + (velocity / yaw_rate)
+                   * (sin(particles[i].theta + yaw_rate * delta_t) - sin(particles[i].theta)));
+      y_updated = (particles[i].y + (velocity / yaw_rate)
+                   * (cos(particles[i].theta) - cos(particles[i].theta + yaw_rate * delta_t)));
+      theta_updated = particles[i].theta + yaw_rate * delta_t;
+      
+    }
     
     // Creating normal distributions for the particle position and heading
     // with a mean = 0 and standard deviation = GPS measurement uncertainty
@@ -101,18 +118,14 @@ double ParticleFilter::calculateDistance(double x1, double y1, double x2, double
 
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
                                    std::vector<LandmarkObs> observations, Map map_landmarks) {
-  // TODO: Update the weights of each particle using a mult-variate Gaussian distribution. You can read
-  //   more about this distribution here: https://en.wikipedia.org/wiki/Multivariate_normal_distribution
-  // NOTE: The observations are given in the VEHICLE'S coordinate system. Your particles are located
-  //   according to the MAP'S coordinate system. You will need to transform between the two systems.
-  //   Keep in mind that this transformation requires both rotation AND translation (but no scaling).
-  //   The following is a good resource for the theory:
-  //   https://www.willamette.edu/~gorr/classes/GeneralGraphics/Transforms/transforms2d.htm
-  //   and the following is a good resource for the actual equation to implement (look at equation
-  //   3.33
-  //   http://planning.cs.uiuc.edu/node99.html
   
-  double distance;
+  double distance, bivariate_gaussian, x_std_dev, y_std_dev;
+
+  bivariate_gaussian = 1 / (2 * M_PI * std_landmark[0] * std_landmark[1]);
+  
+  x_std_dev = 2 * pow(std_landmark[0], 2.0);
+  
+  y_std_dev = 2 * pow(std_landmark[1], 2.0);
   
   for (int i = 0; i < num_particles; ++i) {
     
@@ -199,9 +212,7 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
         x_mean = landmarks_in_range[transformed_observations[n].id].x_f;
         y_mean = landmarks_in_range[transformed_observations[n].id].y_f;
         
-        updated_weight *= ((1 / (2 * M_PI * std_landmark[0] * std_landmark[1]))
-                           * exp(-((pow((x_measurement - x_mean), 2.0) / 2 * pow(std_landmark[0], 2.0))
-                                   + (pow((y_measurement - y_mean), 2.0) / 2 * pow(std_landmark[1], 2.0)))));
+        updated_weight *= bivariate_gaussian * exp(-((pow((x_measurement - x_mean), 2.0) / x_std_dev) + (pow((y_measurement - y_mean), 2.0) / y_std_dev)));
         
       }
       

@@ -38,6 +38,7 @@ int main()
   
   // Read map data
   Map map;
+  // Code throws error if filepath not explicit
 //  if (!read_map_data("../data/map_data.txt", map)) {
   if (!read_map_data("/Users/skunkworks/programming/SDCND/Projects/SDCND-P8-KidnappedVehicle/data/map_data.txt", map)) {
     cout << "Error: Could not open map file" << endl;
