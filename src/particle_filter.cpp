@@ -12,9 +12,15 @@
 
 using namespace std;
 
+// Creating a random seed generator for the random number generator
+random_device seed;
+
+// Creating a random number generator
+mt19937 generator(seed());
+
 void ParticleFilter::init(double x, double y, double theta, double std[]) {
   
-  num_particles = 20;
+  num_particles = 40;
   
   particles.clear();
   weights.clear();
@@ -24,12 +30,6 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
   normal_distribution<double> x_distribution(x, std[0]);
   normal_distribution<double> y_distribution(y, std[1]);
   normal_distribution<double> theta_distribution(theta, std[2]);
-  
-  // Creating a random seed generator for the random number generator
-  random_device seed;
-  
-  // Creating a random number generator
-  mt19937 generator(seed());
   
   // Initializing particles
   for (int i = 0; i < num_particles; ++i) {
@@ -58,12 +58,6 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 
 
 void ParticleFilter::prediction(double delta_t, double std_pos[], double velocity, double yaw_rate) {
-  
-  // Creating a random seed generator for the random number generator
-  random_device seed;
-  
-  // Creating a random number generator
-  mt19937 generator(seed());
   
   for (int i = 0; i < num_particles; ++i) {
     
@@ -119,13 +113,12 @@ double ParticleFilter::calculateDistance(double x1, double y1, double x2, double
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
                                    std::vector<LandmarkObs> observations, Map map_landmarks) {
   
-  double distance, bivariate_gaussian, x_std_dev, y_std_dev;
-
-  bivariate_gaussian = 1 / (2 * M_PI * std_landmark[0] * std_landmark[1]);
+  double distance, bivariate_gaussian_1, bivariate_gaussian_2, bivariate_gaussian_3;
   
-  x_std_dev = 2 * pow(std_landmark[0], 2.0);
-  
-  y_std_dev = 2 * pow(std_landmark[1], 2.0);
+  // Pre-computing bivariate guassian terms
+  bivariate_gaussian_1 = 1 / (2 * M_PI * std_landmark[0] * std_landmark[1]);
+  bivariate_gaussian_2 = 2 * pow(std_landmark[0], 2.0);
+  bivariate_gaussian_3 = 2 * pow(std_landmark[1], 2.0);
   
   for (int i = 0; i < num_particles; ++i) {
     
@@ -144,62 +137,69 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
       
       // Comparing calculated distance between particle and landmark with maximum sensor range
       if (distance <= sensor_range) {
+        
         landmarks_in_range.push_back(map_landmarks.landmark_list[j]);
+        
       }
       
     }
     
-    // Transforming observed landmarks from vehicle to map coordinates
-    vector<LandmarkObs> transformed_observations;
-    transformed_observations.clear();
+    // Checking if particle has landmarks in range
+    if (landmarks_in_range.empty()) {
+      
+      particles[i].weight = 0;
+      weights[i] = 0;
+      
+    }
     
-    for (int k = 0; k < observations.size(); ++k) {
+    else {
       
-      LandmarkObs transformed_observation;
-
-      transformed_observation.x = (particles[i].x + observations[k].x * cos(particles[i].theta)
-                                   - observations[k].y * sin(particles[i].theta));
-      transformed_observation.y = (particles[i].y + observations[k].y * cos(particles[i].theta)
-                                   + observations[k].x * sin(particles[i].theta));
+      // Transforming observed landmarks from vehicle to map coordinates
+      vector<LandmarkObs> transformed_observations;
+      transformed_observations.clear();
       
-      // Associating nearest map landmark to observed landmark
-      transformed_observation.id = -1;
-      
-      double best_distance = sensor_range;
-      int best_index;
-      
-      for (int m = 0; m < landmarks_in_range.size(); ++m) {
+      for (int k = 0; k < observations.size(); ++k) {
         
-        distance = calculateDistance(transformed_observation.x, transformed_observation.y,
-                                     landmarks_in_range[m].x_f, landmarks_in_range[m].y_f);
+        LandmarkObs transformed_observation;
         
-        if (distance < best_distance) {
+        transformed_observation.x = (particles[i].x + observations[k].x * cos(particles[i].theta)
+                                     - observations[k].y * sin(particles[i].theta));
+        transformed_observation.y = (particles[i].y + observations[k].y * cos(particles[i].theta)
+                                     + observations[k].x * sin(particles[i].theta));
+        
+        // Associating nearest map landmark to observed landmark
+        double best_distance = sensor_range;
+        int best_index;
+        
+        for (int m = 0; m < landmarks_in_range.size(); ++m) {
           
-          // Saving the index of the nearest landmark
-          best_index = m;
-          best_distance = distance;
+          distance = calculateDistance(transformed_observation.x, transformed_observation.y,
+                                       landmarks_in_range[m].x_f, landmarks_in_range[m].y_f);
+          
+          if (distance < best_distance) {
+            
+            // Saving the index of the nearest landmark
+            best_index = m;
+            best_distance = distance;
+            
+          }
           
         }
         
+        transformed_observation.id = best_index;
+        
+        transformed_observations.push_back(transformed_observation);
+        
+        particles[i].associations.push_back(landmarks_in_range[best_index].id_i);
+        particles[i].sense_x.push_back(transformed_observation.x);
+        particles[i].sense_y.push_back(transformed_observation.y);
+        
       }
       
-      transformed_observation.id = best_index;
+      // Updating particle weight
+      double updated_weight = 1.0;
       
-      transformed_observations.push_back(transformed_observation);
-      
-      particles[i].associations.push_back(landmarks_in_range[best_index].id_i);
-      particles[i].sense_x.push_back(transformed_observation.x);
-      particles[i].sense_y.push_back(transformed_observation.y);
-      
-    }
-    
-    // Updating particle weight
-    double updated_weight = 1.0;
-    
-    for (int n = 0; n < transformed_observations.size(); ++n) {
-      
-      // Checking if a map landmark was assigned to an observed landmark
-      if (transformed_observations[n].id != -1) {
+      for (int n = 0; n < transformed_observations.size(); ++n) {
         
         // Extracting values from vectors for clarity
         double x_measurement, y_measurement, x_mean, y_mean;
@@ -212,20 +212,17 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
         x_mean = landmarks_in_range[transformed_observations[n].id].x_f;
         y_mean = landmarks_in_range[transformed_observations[n].id].y_f;
         
-        updated_weight *= bivariate_gaussian * exp(-((pow((x_measurement - x_mean), 2.0) / x_std_dev) + (pow((y_measurement - y_mean), 2.0) / y_std_dev)));
+        updated_weight *= (bivariate_gaussian_1
+                           * exp(-((pow((x_measurement - x_mean), 2.0) / bivariate_gaussian_2)
+                                   + (pow((y_measurement - y_mean), 2.0) / bivariate_gaussian_3))));
         
       }
-      
-    }
-    
-    // Checking if the weight was updated
-    if (updated_weight != 1.0) {
       
       particles[i].weight = updated_weight;
       weights[i] = updated_weight;
       
     }
-    
+
   }
   
 }
@@ -236,12 +233,6 @@ void ParticleFilter::resample() {
   // Creating a vector of resampled particles
   vector<Particle> resampled_particles;
   resampled_particles.clear();
-  
-  // Creating a random seed generator for the random number generator
-  random_device seed;
-  
-  // Creating a random number generator
-  mt19937 generator(seed());
   
   // Creating a discrete distribution based on the weights
   discrete_distribution<> weight_distribution(weights.begin(), weights.end());
